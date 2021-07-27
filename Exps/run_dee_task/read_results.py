@@ -1,4 +1,5 @@
 import pickle
+import json
 
 def default_load_pkl(pkl_file_path, **kwargs):
     with open(pkl_file_path, 'rb') as fin:
@@ -6,52 +7,152 @@ def default_load_pkl(pkl_file_path, **kwargs):
 
     return obj
 
-gold_record_mat = default_load_pkl("D:/ecnu/Event extraction/Doc2EDAG/Exps/run_dee_task/Output/dee_eval.dev.gold_span.GreedyDec.15.pkl")
-pred_record_mat = default_load_pkl("D:/ecnu/Event extraction/Doc2EDAG/Exps/run_dee_task/Output/dee_eval.dev.pred_span.GreedyDec.15.pkl")
+def load_origin_data(file_path):
+    with open(file_path, 'rb') as f:
+        data = json.load(f)
+    return data
 
-print(gold_record_mat[:1])
-print(pred_record_mat[:1])
+def calc_len(sentences, index, offset):
+    sentences_len = 0
+    print(len(sentences))
+    for i in range(len(sentences)):
+        if i < index:
+            sentences_len += len(sentences[i]) + 1
+    return sentences_len + offset
 
-for pred_records in pred_record_mat:
-    if pred_records is None:
-        print(None)
-    print("pred_records: ", pred_records)
-    for pred_record in pred_records:
-        print("pred_record: ", pred_record)
-        # for arg_tup in pred_record:
-        #     if arg_tup is None:
-        #         print(None)
-        #     else:
-        #         print(arg_tup)
+file = ['dev','test']
+model = 'GreedyDec'
+for filename in file:
+    origin_data =load_origin_data("D:/ecnu/Event extraction/Doc2EDAG/Data/Doc2EDAG_{}.json".format(filename))
+    gold_record_mat = default_load_pkl(
+        "D:/ecnu/Event extraction/Doc2EDAG_20210727/Exps/run_dee_task/Output_server/Output/dee_eval.{}.gold_span.{}.10.pkl".format(filename,model))
+    pred_record_mat_all = default_load_pkl(
+        "D:/ecnu/Event extraction/Doc2EDAG_20210727/Exps/run_dee_task/Output_server/Output/dee_eval.{}.pred_span.{}.10.pkl".format(filename,model))
 
+    ans = []
+    print(pred_record_mat_all[:1])
+    for index in range(len(pred_record_mat_all)):
+        paragraph = origin_data[index]
+        sentences = paragraph[1]['sentences']
+        all_sentences = ""
+        for sl in sentences:
+            if (len(sl) != 0):
+                all_sentences += sl + "。"
 
-# pred_record_mat = [
-#             [
-#                 [
-#                     tuple(arg_tup) if arg_tup is not None else None
-#                     for arg_tup in pred_record
-#                 ] for pred_record in pred_records
-#             ] if pred_records is not None else None
-#             for pred_records in pred_record_mat[:2]
-#         ]
-# print(pred_record_mat)
-# gold_record_mat = [
-#             [
-#                 [
-#                     tuple(doc_fea.span_token_ids_list[arg_idx]) if arg_idx is not None else None
-#                     for arg_idx in event_arg_idxs
-#                 ] for event_arg_idxs in event_arg_idxs_objs
-#             ] if event_arg_idxs_objs is not None else None
-#             for event_arg_idxs_objs in doc_fea.event_arg_idxs_objs_list
-#         ]
-# pred_record_mat = [
-#             [
-#                 [
-#                     tuple(arg_tup) if arg_tup is not None else None
-#                     for arg_tup in pred_record
-#                 ] for pred_record in pred_records
-#             ] if pred_records is not None else None
-#             for pred_records in pred_record_mat
-#         ]
+        ans_json = {
+            "sentences": all_sentences,
+            "events": [
 
-# print(pred_record_mat)
+            ]
+        }
+        term = pred_record_mat_all[index]
+        if term is None:
+            ans.append(ans_json)
+            continue
+        ex_idx, pred_event_type_labels, pred_record_mat = term[:3]
+        #guid = term[:5]
+        span_token_tup_list = term[3].span_token_tup_list
+        span_dranges_list = term[3].span_dranges_list
+        token_id2span_range = {}
+        for token_ids, token_range in zip(span_token_tup_list, span_dranges_list):
+            token_id2span_range[token_ids] = token_range
+
+        pred_record_mat = [
+            [
+                [
+                    tuple(arg_tup) if arg_tup is not None else None
+                    for arg_tup in pred_record
+                ] for pred_record in pred_records
+            ] if pred_records is not None else None
+            for pred_records in pred_record_mat
+        ]
+        events = pred_record_mat[3]
+        if events is None:
+            ans.append(ans_json)
+            continue
+        for i in range(len(events)):
+            event = events[i]
+            trigger_token_ids = event[0]
+            sub_token_ids = event[1]
+            obj_token_ids = event[2]
+            time_token_ids = event[3]
+            loc_token_ids = event[4]
+
+            if trigger_token_ids is not None:
+                trigger_range = token_id2span_range[trigger_token_ids]
+                trigger_text = sentences[trigger_range[0][0]][trigger_range[0][1]: trigger_range[0][2]]
+            else:
+                trigger_text = None
+            if sub_token_ids is not None:
+                sub_range = token_id2span_range[sub_token_ids]
+                sub_text = sentences[sub_range[0][0]][sub_range[0][1]:sub_range[0][2]] #（0,1，,22）（1,3,44）
+            else:
+                sub_text = None
+            if obj_token_ids is not None:
+                obj_range = token_id2span_range[obj_token_ids]
+                obj_text = sentences[obj_range[0][0]][obj_range[0][1]:obj_range[0][2]]
+            else:
+                obj_text = None
+            if time_token_ids is not None:
+                time_range = token_id2span_range[time_token_ids]
+                time_text = sentences[time_range[0][0]][time_range[0][1]:time_range[0][2]]
+            else:
+                time_text = None
+            if loc_token_ids is not None:
+                loc_range = token_id2span_range[loc_token_ids]
+                loc_text = sentences[loc_range[0][0]][loc_range[0][1]:loc_range[0][2]]
+            else:
+                loc_text = None
+
+            tmp_ans = {}
+            if trigger_text is not None:
+                tmp_ans["trigger"] = {
+                    "text": trigger_text,
+                    "length": trigger_range[0][2] - trigger_range[0][1],
+                    "offset": calc_len(sentences,trigger_range[0][0],trigger_range[0][1])
+                }
+            else:
+                tmp_ans["trigger"] = {
+                    "text": None,
+                    "length": None,
+                    "offset": None
+                }
+            tmp_ans["arguments"] = []
+            if sub_text is not None:
+                tmp_ans["arguments"].append({
+                    'role': 'subject',
+                    "text": sub_text,
+                    "length": sub_range[0][2] - sub_range[0][1],
+                    "offset": calc_len(sentences, sub_range[0][0], sub_range[0][1])
+                })
+
+            if obj_text is not None:
+                tmp_ans["arguments"].append({
+                    'role': 'object',
+                    "text": obj_text,
+                    "length": obj_range[0][2] - obj_range[0][1],
+                    "offset": calc_len(sentences, obj_range[0][0], obj_range[0][1])
+                })
+
+            if time_text is not None:
+                tmp_ans["arguments"].append({
+                    'role': 'time',
+                    "text": time_text,
+                    "length": time_range[0][2] - time_range[0][1],
+                    "offset": calc_len(sentences, time_range[0][0], time_range[0][1])
+                })
+
+            if loc_text is not None:
+                tmp_ans["arguments"].append({
+                    'role': 'loc',
+                    "text": loc_text,
+                    "length": loc_range[0][2] - loc_range[0][1],
+                    "offset": calc_len(sentences, loc_range[0][0], loc_range[0][1])
+                })
+
+            ans_json["events"].append(tmp_ans)
+        ans.append(ans_json)
+
+    with open("{}-{}.json".format(model, filename), 'w', encoding='utf-8') as f:
+        json.dump(ans, f, ensure_ascii=False)
+
